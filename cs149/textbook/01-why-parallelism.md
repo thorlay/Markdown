@@ -78,9 +78,9 @@
 
 如果局部计算在理想情况下各占 20 秒，但“把局部和从教室后面送过来”需要很久，则：
 
-$
+$$
 T_{\text{parallel}} \approx \max(T_A,T_B) + T_{\text{communicate}} + T_{\text{combine}}
-$
+$$
 
 只减少局部计算时间，却没有控制通信开销，整体不一定加速。
 
@@ -255,9 +255,9 @@ $$
 
 对“每个 Worker 独立处理一份任务，最后再合并”的并行算法，可以先写：
 
-$
+$$
 T_P \approx T_{\text{setup}} + \max_i T_{\text{work},i} + T_{\text{communication}} + T_{\text{reduction}}
-$
+$$
 
 这个模型的关键是 **max 而不是 average**。只要最终结果依赖全部工作完成，长尾 Worker 就可能决定总体时间。
 
