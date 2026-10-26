@@ -96,9 +96,9 @@ Cache 通常不是一次只搬一个字节，而是按 **Cache Line（缓存行�
 
 如果一条 Cache Line 有 L 字节，非负地址 a 所属行的起点是：
 
-$$
+```math
 \operatorname{line}(a)=\left\lfloor \frac{a}{L}\right\rfloor L
-$$
+```
 
 所以在本例中访问地址 5，会加载起点为 4 的一整行，而不是单独加载一个字节。真实 x86 处理器的 Cache Line 常为 64 字节；**4 字节只为便于讲解**。
 
@@ -253,23 +253,23 @@ for i in 0..N-1:
 
 正弦函数在 0 附近可以展开为：
 
-$$
+```math
 \sin(x)=x-\frac{x^3}{3!}+\frac{x^5}{5!}-\frac{x^7}{7!}+\cdots
-$$
+```
 
 n! 表示阶乘，例如 3!=6，5!=120。保留有限项便得到近似。
 
 定义 term₀=x。对 k≥1：
 
-$$
-\operatorname{term}_k=\operatorname{term}_{k-1}\frac{-x^2}{(2k)(2k+1)}
-$$
+```math
+\operatorname{term}_k = \operatorname{term}_{k-1}\cdot\frac{-x^2}{(2k)(2k+1)}
+```
 
 取 K 个额外项的近似是：
 
-$$
+```math
 s(x)=\sum_{k=0}^{K}\operatorname{term}_k
-$$
+```
 
 用 x=1、保留前三项手算：
 
@@ -448,9 +448,9 @@ Multicore 复制的是能够执行不同指令流的 Core。SIMD 则让一个指
 
 如果一个 float32 是 32 bits，而 AVX2 Vector Register 有 256 bits：
 
-$$
+```math
 V=\frac{256\ \mathrm{bits}}{32\ \mathrm{bits/float}}=8\ \mathrm{floats}
-$$
+```
 
 因此一条相应的 AVX2 向量乘法或加法，可以处理 8 个 float。真实微架构中每周期能执行多少向量指令，还取决于执行端口、指令类别与数据是否就绪。
 
@@ -458,15 +458,15 @@ $$
 
 如果有 16 个 Core，每个 Core 在某个周期能发出一条 8-wide 浮点算术指令：
 
-$$
+```math
 16\times8=128\ \text{元素算术操作/周期（理想上限）}
-$$
+```
 
 如果有 4 个 Core，每 Core 理想情况下能同时执行 3 条独立的 8-wide 算术指令：
 
-$$
+```math
 4\times3\times8=96\ \text{元素算术操作/周期（理想上限）}
-$$
+```
 
 这些数字不是程序一定能达到的 FLOP/s：它们没有考虑数据带宽、指令依赖、Cache Miss、执行端口限制、实际频率和不同运算的吞吐率。
 
@@ -569,18 +569,18 @@ Condition:    T T F T F F F F
 
 假设 V 个 Lane 中 n 个走 if，其他走 else；if 路径有 A 条向量算术指令，else 有 B 条。假设两条路径分别执行且没有额外优化，则一个教学用利用率模型为：
 
-$$
+```math
 U=\frac{nA+(V-n)B}{V(A+B)}
-$$
+```
 
 分子是真正需要完成的 Lane-Instruction 数量；分母是执行两条路径时使用的总 Lane Capacity。
 
 例如 V=8、n=3、A=3、B=2：
 
-$$
+```math
 U=\frac{3\times3+5\times2}{8(3+2)}
 =\frac{19}{40}=47.5\%
-$$
+```
 
 这是简化的 Mask 模型，不是所有真实 CPU/GPU 上的性能计数器数值。
 
@@ -590,10 +590,10 @@ $$
 
 设只有 1 Lane 执行很长的 if 路径（100 条指令），7 Lane 执行极短的 else（1 条）：
 
-$$
+```math
 U=\frac{1\times100+7\times1}{8(100+1)}
 =\frac{107}{808}\approx13.24\%
-$$
+```
 
 当昂贵路径相对更长时，利用率趋近于 1/8=12.5%。如果两条路径成本一样，不能从“1 个 Lane 走 if”直接推断出 1/8 的整体利用率。
 
@@ -666,15 +666,15 @@ A 的访存并没有变快，但 Core 不必因 A 的 Stall 而长时间空闲�
 
 **单线程**的理论算术忙碌率：
 
-$$
+```math
 U_1=\frac{C}{C+L}
-$$
+```
 
 令 C=3、L=12：
 
-$$
+```math
 U_1=\frac{3}{3+12}=20\%
-$$
+```
 
 也就是说，ALU 每 15 个周期只执行约 3 周期的有用算术，其余周期都可能因为等待而闲置。
 
@@ -693,20 +693,20 @@ $$
 
 一个很直观的玩具模型估计式是：
 
-$$
+```math
 N_{\mathrm{threads}}\ge
 \left\lceil\frac{C+L}{C}\right\rceil
 =1+\left\lceil\frac{L}{C}\right\rceil
-$$
+```
 
 其中 **ceil** 代表向上取整。
 
 - C=3、L=12 → 至少 **5 个 Threads**；
 - 如果同样等待 12 周期，但一个线程能先连续执行 C=6 周期，则需要：
 
-$$
+```math
 N_{\mathrm{threads}}\ge\left\lceil\frac{6+12}{6}\right\rceil=3
-$$
+```
 
 这分别对应 Slides 中“五个线程可达到满利用率”和“更高计算/等待比只需三个线程”的课堂练习。
 
@@ -750,10 +750,10 @@ $$
 
 课程以 V100 为例，假设最多有 80 个 SM，每个 SM 可驻留最多 64 个 Warps，一个 Warp 有 32 个 CUDA Threads。
 
-$$
+```math
 80\ \mathrm{SM}\times64\ \mathrm{warps/SM}\times32\ \mathrm{threads/warp}
 =163{,}840\ \mathrm{resident\ thread\ positions}
-$$
+```
 
 这里数的是**理论上可驻留的线程位置上限**，不是一个周期同时完成 163,840 次浮点运算。真实驻留数量还受寄存器、Shared Memory、Block 大小和其他资源限制；Warp 发射和 ALU 数量也与驻留线程数不同。
 
@@ -911,10 +911,10 @@ for (int i = 1; i < n; ++i)
 
 **答：**
 
-$$
+```math
 U=\frac{2\times5+6\times3}{8(5+3)}
 =\frac{28}{64}=43.75\%
-$$
+```
 
 ### Q7. 隐藏访存等待
 
@@ -922,9 +922,9 @@ $$
 
 **答：**
 
-$$
+```math
 N_{\mathrm{threads}}\ge\left\lceil\frac{4+12}{4}\right\rceil=4
-$$
+```
 
 另外三个线程各计算 4 周期，可以填满前一个线程 12 周期的等待窗口。
 
