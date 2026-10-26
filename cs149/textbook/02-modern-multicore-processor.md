@@ -750,10 +750,10 @@ $$
 
 课程以 V100 为例，假设最多有 80 个 SM，每个 SM 可驻留最多 64 个 Warps，一个 Warp 有 32 个 CUDA Threads。
 
-$
+$$
 80\ \mathrm{SM}\times64\ \mathrm{warps/SM}\times32\ \mathrm{threads/warp}
 =163{,}840\ \mathrm{resident\ thread\ positions}
-$
+$$
 
 这里数的是**理论上可驻留的线程位置上限**，不是一个周期同时完成 163,840 次浮点运算。真实驻留数量还受寄存器、Shared Memory、Block 大小和其他资源限制；Warp 发射和 ALU 数量也与驻留线程数不同。
 
