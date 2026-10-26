@@ -4,6 +4,8 @@
 
 **原始资料：** [官方 Slides PDF](https://gfxcourses.stanford.edu/cs149/fall23content/media/dnneval/10_dnneval.pdf) · [Stanford Online 录课](https://www.youtube.com/watch?v=qbKtU0X6-WU)
 
+**先修知识：** 只需掌握数组、循环、基本矩阵乘法概念；如不熟悉 Softmax，本章会自行定义并提供可运行代码。本章的理论例子和 Attention 实验都不依赖 GPU、PyTorch 或其他课程。性能优化的真实 Benchmark 才需要相应设备与工具链。
+
 ## 本章解决什么问题？
 
 为什么一个看上去只有几个数学算子的神经网络，在真实 GPU 上运行时，性能却可能远低于峰值 FLOPs？为什么高性能 DNN Runtime 需要同时考虑算子选择、数据布局、线程映射、融合和执行调度？
@@ -53,6 +55,31 @@ C[i,j] = sum_k A[i,k] * B[k,j]
 
 对于常见 Dense GEMM，总乘加工作量大约为 2MNK FLOPs（按一次乘法、一次加法分别记 1 FLOP）。
 
+### 从一个 2×2 例子算到结果
+
+给定：
+
+~~~text
+A = [1 2]    B = [5 6]
+    [3 4]        [7 8]
+~~~
+
+逐元素计算：
+
+~~~text
+C[0,0] = 1*5 + 2*7 = 19
+C[0,1] = 1*6 + 2*8 = 22
+C[1,0] = 3*5 + 4*7 = 43
+C[1,1] = 3*6 + 4*8 = 50
+
+C = [19 22]
+    [43 50]
+~~~
+
+上面一共做了 8 次乘法和 4 次显式加法，按指令计是 12 次浮点算术操作；常见 GEMM 性能模型用 2MNK = 16 FLOPs 作为大规模近似，是因为它忽略每个输出点少掉的那一次加法。**不能把 FLOPs（运算次数）和 FLOP/s（吞吐速率）混为一谈。**
+
+
+
 朴素三重循环：
 
 ~~~cpp
@@ -84,6 +111,12 @@ for each output tile (i, j):
 ~~~
 
 但 Tile 并非越大越好。更大 Tile 可能需要更多 Registers 和 Shared Memory，进而减少并行驻留的 Warps / Blocks，甚至导致寄存器溢出。高性能库通常会根据不同 Shape、dtype 和 GPU 架构使用不同的 Tile 策略。
+
+**一个可手算的 Tiling 流量模型：** 假设 A、B 都是 4×4，忽略 Cache 并按最朴素的逐输出点 GEMM 计输入元素读取，则 16 个输出分别累加 4 个乘积，每次乘积读取 A 和 B 各一个 float，共 16×4×2 = 128 次 float 读取。
+
+若改为 2×2 的输出 Tile：共有 4 个输出 Tile，每个输出 Tile 又沿 K 分成 2 个子块。每次 Tile 计算只加载 2×2 个 A 元素与 2×2 个 B 元素，总共 4×2×(4+4) = 64 次 float 读取，并在同一计算块里复用。这是**理想化显式访存次数**的对比，不是断言真实 DRAM 流量减半；硬件 Cache 也能让朴素程序复用部分数据。
+
+
 
 ### 算术密度的直觉
 
@@ -124,6 +157,19 @@ Y = relu(Z + bias)
 
 这种优化背后的主要收益是**减少数据移动**，而不是改变矩阵乘法的理论算术复杂度。
 
+对一个大小为 N 个 float32 元素的中间 Tensor，若 GEMM、Bias、ReLU 三个阶段分别读写 Global Memory，单看中间结果读写的逻辑流量大致为：
+
+| 阶段 | 逻辑 Global Memory 访问 |
+| --- | --- |
+| GEMM 写 Z | 4N 字节 |
+| Bias 读 Z、写中间 Tensor | 8N 字节 |
+| ReLU 读中间 Tensor、写 Y | 8N 字节 |
+| 合计 | 20N 字节 |
+
+若在 GEMM Epilogue 内融合 Bias、ReLU，在理想化模型中只需把最终 Y 写出约 4N 字节。**潜在节省约 16N 字节**，尚未计算输入 A/B、Bias 的读取，也未考虑 Cache、实现方式和实际内存事务。这就是 Fusion 的成本模型，而非实测收益。
+
+
+
 Fusion 也不是万能：
 - 一个过于复杂的 Kernel 可能增加 Registers；
 - 更高资源占用可能降低 Occupancy；
@@ -143,6 +189,94 @@ O = P @ V
 ~~~
 
 设 Q、K、V 的序列长度都是 L，S 和 P 的形状通常为 L×L。标准朴素实现若将完整 S、P 物化在 GPU HBM，单个 Head 就要承担与 L² 成正比的中间存储。
+
+### Softmax 和 Attention：一个无需 GPU 的完整计算
+
+对于向量 s = [s₀,s₁,...]，Softmax 定义为：
+
+$
+\operatorname{softmax}(s)_i = \frac{e^{s_i}}{\sum_j e^{s_j}}
+$
+
+数值计算通常先从每个得分中减去该行最大值 m=max(s)，因为所有指数项同时乘上 e^(-m) 并不改变最终归一化结果，却能够避免大数指数溢出。
+
+现在选两个 Token、一个 Head、Head Dimension d=2：
+
+~~~text
+Q = K = [1 0]    V = [1 2]
+        [0 1]        [3 4]
+~~~
+
+于是 QKᵀ/√2 为：
+
+~~~text
+S = [0.7071 0     ]
+    [0      0.7071]
+~~~
+
+第一行 Softmax 约是 [0.6698, 0.3302]，第二行约是 [0.3302, 0.6698]。将权重乘上 V，得到：
+
+~~~text
+O ≈ [1.6605 2.6605]
+    [2.3395 3.3395]
+~~~
+
+**这个结果可以只使用 Python 标准库复现。** 把下面代码复制为 attention_reference.py：
+
+~~~python
+from math import exp, sqrt
+
+def stable_softmax(row):
+    peak = max(row)
+    terms = [exp(x - peak) for x in row]
+    total = sum(terms)
+    return [t / total for t in terms]
+
+def attention(q, k, v):
+    assert q and k and v and len(k) == len(v)
+    width = len(q[0])
+    out_width = len(v[0])
+    assert width > 0 and all(len(row) == width for row in q + k)
+    assert out_width > 0 and all(len(row) == out_width for row in v)
+
+    inv_scale = 1.0 / sqrt(width)
+    scores = [
+        [sum(qi[t] * kj[t] for t in range(width)) * inv_scale
+         for kj in k]
+        for qi in q
+    ]
+    probabilities = [stable_softmax(row) for row in scores]
+    out = [
+        [sum(probabilities[i][j] * v[j][c] for j in range(len(v)))
+         for c in range(out_width)]
+        for i in range(len(q))
+    ]
+    return scores, probabilities, out
+
+q = [[1.0, 0.0], [0.0, 1.0]]
+k = [[1.0, 0.0], [0.0, 1.0]]
+v = [[1.0, 2.0], [3.0, 4.0]]
+scores, probabilities, out = attention(q, k, v)
+
+rounded = [[round(x, 4) for x in row] for row in out]
+print(rounded)
+assert abs(out[0][0] - 1.6605) < 1e-3
+assert abs(out[1][1] - 3.3395) < 1e-3
+~~~
+
+运行命令：
+
+~~~bash
+python3 attention_reference.py
+~~~
+
+预期输出：
+
+~~~text
+[[1.6605, 2.6605], [2.3395, 3.3395]]
+~~~
+
+本例只展示普通 Scaled Dot-Product Attention，没有 Causal Mask、Dropout、Batch 或多个 Heads；它计算并保存完整 Scores 和 Probability 矩阵，所以**不是 FlashAttention 的高性能实现**。它用于建立可以验证的正确性基线；代码中的断言和数值输出已通过本地 Python 运行检查。
 
 例如只考虑单个矩阵、单个 Head、单个 Batch：
 
@@ -166,6 +300,34 @@ float32: 约 64 MiB / matrix
 3. 结合数值稳定的在线 Softmax 实现完整计算。
 
 **重要限定：** 这并不把 Dense Attention 的所有 O(L²) 数学计算自动变成 O(L)。主要改变的是 I/O 路径和资源利用方式。
+
+### 为什么可以分块计算，而不保存整个 Softmax 矩阵？
+
+对于某一 Query 行，假设已经见过一批 Score/Value 对 (sᵢ,vᵢ)。我们可以维护三个统计量：
+
+- m = max(sᵢ)：已见分数中的最大值；
+- ℓ = Σ exp(sᵢ−m)：归一化分母的稳定形式；
+- u = Σ exp(sᵢ−m) vᵢ：加权 Value 向量的未归一化分子。
+
+最终输出是 u/ℓ。若有两批分数，分别维护 (mₐ,ℓₐ,uₐ) 与 (mᵦ,ℓᵦ,uᵦ)，只需要按共同的新最大值 m′ 对两组结果重新缩放：
+
+$
+m' = \max(m_a,m_b)
+$
+
+$
+\ell' = e^{m_a-m'}\ell_a + e^{m_b-m'}\ell_b
+$
+
+$
+u' = e^{m_a-m'}u_a + e^{m_b-m'}u_b
+$
+
+最后输出 u′/ℓ′。这些公式可以从 Softmax 定义出发，把所有 exp(sᵢ−m′) 分别按两批重新写出；**不用同时存储全部 L×L 的 Score Matrix** 就能逐块累计结果。
+
+这个在线归一化公式帮助理解 FlashAttention 的数学基础，但真实 GPU 实现还必须解决 Tile 调度、寄存器、Shared Memory、数值精度和多种 Mask 等问题。
+
+
 
 此外，原始 Stanford CS149 Fall 2023 的 Assignment 4 主要让学生用 **C++/CPU** 思考 Attention 的 Locality、Blocking、Fusion 和并行优化；这不是让学生直接交一个 GPU CUDA FlashAttention 实现。算法理念有联系，但运行平台和具体瓶颈不同。
 
@@ -239,6 +401,23 @@ CS149 的 GPU DNN 优化可以自然接到这些当前系统议题：
 3. 对输入序列长度 L 做倍增实验，例如 256、512、1024、2048；
 4. 用曲线区分计算工作量、内存容量与实际时间的变化；
 5. 在学习 [CS336](https://cs336.stanford.edu/) 或 [GPU MODE](https://github.com/gpu-mode/lectures) 时，再做 Triton / FlashAttention 方向的 GPU 实验。
+
+## 本章术语速查
+
+| 术语 | 完整含义 |
+| --- | --- |
+| GEMM | General Matrix Multiplication，通用矩阵乘法 |
+| FLOPs | 一项计算所需的浮点运算次数（工作量） |
+| FLOP/s | 每秒浮点运算次数（吞吐率） |
+| Tile / Blocking | 将大计算拆成可复用数据的小块 |
+| Arithmetic Intensity | 在指定内存层级下，每字节数据移动对应多少计算量 |
+| Operator Fusion | 把多个算子合并执行，常用来减少中间数据读写与启动开销 |
+| Softmax | 把一组实数映射为非负且总和为 1 的概率型权重 |
+| Q / K / V | Query、Key、Value；Attention 使用的三组输入向量 |
+| HBM | GPU 常用的高带宽设备内存 |
+| Prefill / Decode | LLM 处理输入上下文 / 逐 Token 自回归生成的阶段 |
+
+**自包含检查：** 如果不打开 Stanford Slides，你现在应该能复算 2×2 GEMM、解释 Fusion 的理论内存节省，运行 Attention 的纯 Python 例子，并从在线归一化公式说明为什么可以减少中间 Score 的存储。代码中的 Softmax 输出不等于 Benchmark；没有实测 GPU 硬件前，不应声称性能提升多少倍。
 
 ## 来源核验
 
