@@ -55,3 +55,7 @@ Block Size 影响线程分组和资源使用，但“更大一定更快”是错
 结果可以直接复制到 [Benchmark 模板](../templates/benchmark-log.md)。
 
 官方完整课程作业：[Stanford CS149 Assignment 3](https://github.com/stanford-cs149/asst3)。
+
+## Lecture 02：CPU Cache / Multicore / SIMD
+
+[三段可运行实验与编译命令](./lecture02/README.md)。正文同样包含完整代码，实验目录仅供方便执行。
