@@ -36,6 +36,16 @@ T_P = T_{\mathrm{compute}} + T_{\mathrm{communication}}
 $$
 ~~~
 
+## 自动化基础检查
+
+从仓库根目录运行：
+
+~~~bash
+python3 cs149/tools/check_textbook.py
+~~~
+
+这个脚本检查课程章节是否包含明确先修、练习与解答、来源记录，以及 Markdown 公式定界符、代码围栏、局部链接和未完成代码占位符。它**不能**替代人工审阅、公式数值验证、硬件实测或 Transcript 音频核对。
+
 ## 发布质量分级
 
 | 状态 | 标准 |

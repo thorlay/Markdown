@@ -699,6 +699,8 @@ assert simulate(case_b) == (12, 5)
 print("Both cache examples match.")
 ~~~
 
+将代码保存为 cache_lru.py，在安装有 Python 3 的环境执行 python3 cache_lru.py；预期打印 Both cache examples match.，无需第三方包。
+
 可以修改 line_size、line_capacity 与访问顺序，观察数据布局如何影响理论命中率。
 
 ### 10.4 真实 CPU 的访问延迟差距有多大？
