@@ -6,6 +6,8 @@
 
 **原始资料：** [Stanford 官方课程页](https://gfxcourses.stanford.edu/cs149/fall23/lecture/whyparallelism/) · [Lecture 1 Slides（PDF）](https://gfxcourses.stanford.edu/cs149/fall23content/media/whyparallelism/01_whyparallelism_huXfOJ4.pdf) · [Lecture 1 录像](https://www.youtube.com/watch?v=V1tINV2-9p4)
 
+**先修知识：** 了解变量、简单加法和数组即可；不要求读过其他 Lecture，也无需打开 Slides 才能完成本章习题。所有符号、课堂案例与关键计算均在正文中解释。
+
 **阅读定位：** 这是一章可独立阅读的教材，而不是 PPT 摘要；它按课堂推理顺序组织，并在必要处加入独立推导、练习和现代 AI Infrastructure 延伸。正文采用原创表述；课堂演示和数据依据转写及 Slides，辅助推导和 AI 相关讨论会明确标记。
 
 ## 本章导读：先学会问“为什么”，再学会写并行程序
