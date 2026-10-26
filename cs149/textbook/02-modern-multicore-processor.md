@@ -600,3 +600,368 @@ $$
 **真正需要优化的是：同组工作是否执行相似计算，以及为解决分歧而重新组织数据是否值得其搬运成本。**
 
 ---
+
+## 7. Hardware Multithreading：用其他线程的计算隐藏访存延迟
+
+到这里，我们已经了解如何让 CPU 拥有更多 Core，或让一个 Core 用 SIMD 同时处理更多数据。但还有一项约束：**如果指令需要的数据尚未准备好，再多的 ALU 也可能无法完成有效计算。**
+
+### 7.1 什么是 Latency Hiding？
+
+**Memory Latency** 指一次特定内存访问获得结果所需的时间。**Latency Hiding（隐藏延迟）**不是把这次访问的真实物理延迟从 200 周期改成 10 周期，而是在等待期间继续执行其他不依赖该结果的工作。
+
+教授用洗衣服和烧水作生活类比：洗衣机正在运行时，你可以先准备下一件事情，而不是持续盯着它。处理器也可以这样安排指令流。
+
+让一个 Core 保留多个线程上下文（Execution Context）：
+
+~~~text
+                       Core 0
+            +---------------------------+
+            | Fetch/Decode + ALU        |
+            |                           |
+            | Context A: PC, Registers  |
+            | Context B: PC, Registers  |
+            | Context C: PC, Registers  |
+            | Context D: PC, Registers  |
+            +---------------------------+
+                         |
+                     Memory
+~~~
+
+**PC（Program Counter）**是下一条待执行指令的位置；寄存器保存各线程自己的计算状态。
+
+假设 A 遇到一次漫长的 Load 等待：
+
+~~~text
+时间向右流逝：
+
+Thread A:  计算 | 等待内存................ | 可运行
+Core ALU:  [A]  [B] [B] [C] [C] [D] [D]  [A]
+                      ↑
+               利用其他线程做有用工作
+~~~
+
+A 的访存并没有变快，但 Core 不必因 A 的 Stall 而长时间空闲。
+
+### 7.2 Hardware Thread 与 std::thread 不是一回事
+
+在上一节，C++ 的 std::thread 创建软件执行线程，由操作系统和硬件进行调度。软件线程可能分布在不同物理 Core 上，也可能竞争同一 Core。
+
+**Hardware Multithreading** 则是处理器架构本身支持在一个 Core 内保留多个线程的硬件执行状态。一个支持两条硬件线程的 Core 并不等价于两个完整物理 Core，也**不意味着拥有两份相同的 ALU**。
+
+这个区分解释了为什么机器显示“8 个 Logical CPUs”，不一定有 8 个完全独立的物理 Core。
+
+### 7.3 重要算例：3 周期计算 + 12 周期等待
+
+课程 Slides 提供一个很适合手算的模型，必须把它弄懂。
+
+假设一个虚构 Core：
+
+- 每周期执行一个算术操作；
+- 某线程连续执行 C 个算术周期；
+- 然后该线程因 Load 等待 L 个周期；
+- 同一个 Core 可以从其他就绪线程中选择指令；
+- 忽略线程切换、Load 指令本身的执行开销、共享内存争用和其他执行限制。
+
+**单线程**的理论算术忙碌率：
+
+$$
+U_1=\frac{C}{C+L}
+$$
+
+令 C=3、L=12：
+
+$$
+U_1=\frac{3}{3+12}=20\%
+$$
+
+也就是说，ALU 每 15 个周期只执行约 3 周期的有用算术，其余周期都可能因为等待而闲置。
+
+如果安排 5 个线程，每个线程计算 3 周期：
+
+| 周期区间 | 核心执行 |
+| --- | --- |
+| 0–2 | Thread 0 的算术 |
+| 3–5 | Thread 1 的算术 |
+| 6–8 | Thread 2 的算术 |
+| 9–11 | Thread 3 的算术 |
+| 12–14 | Thread 4 的算术 |
+| 15–17 | Thread 0 再次就绪并计算 |
+
+此时 Thread 0 从周期 3 起等待 12 周期，到周期 15 时可以重新运行；其他四个线程的计算正好填满了空档。
+
+一个很直观的玩具模型估计式是：
+
+$$
+N_{\mathrm{threads}}\ge
+\left\lceil\frac{C+L}{C}\right\rceil
+=1+\left\lceil\frac{L}{C}\right\rceil
+$$
+
+其中 **ceil** 代表向上取整。
+
+- C=3、L=12 → 至少 **5 个 Threads**；
+- 如果同样等待 12 周期，但一个线程能先连续执行 C=6 周期，则需要：
+
+$$
+N_{\mathrm{threads}}\ge\left\lceil\frac{6+12}{6}\right\rceil=3
+$$
+
+这分别对应 Slides 中“五个线程可达到满利用率”和“更高计算/等待比只需三个线程”的课堂练习。
+
+**模型边界：** 现实中的指令发射端口、Pipeline、SMT、Load Queue、Cache、Memory Bandwidth、寄存器占用都会影响可运行线程数。这个式子帮助建立直觉，不能直接当成所有 CPU 或 GPU 的 Occupancy Calculator。
+
+### 7.4 为什么要保留更多线程，不等于总是变快？
+
+每个驻留线程都需要保存执行状态。这会消耗有限的寄存器或其他片上存储。线程越多，每线程可获得的资源可能越少，并且更多线程也可能共同争用 Cache 和访存带宽。
+
+此外，**Latency 与 Throughput 是不同的优化目标**：
+
+- **Latency**：一个线程或一次请求从开始到完成需要多少时间。
+- **Throughput**：整个机器每秒完成多少单位工作。
+
+如果 Thread 0 的内存数据已经准备好，但当前正执行 Thread 2，那么 Thread 0 仍可能等待调度。这样整个 Core 的空闲时间减少了，单位时间完成的总工作变多了，但 Thread 0 自己的完成时间未必更短。
+
+### 7.5 Interleaved 与 Simultaneous Multithreading
+
+**Interleaved Multithreading（交错多线程）**：在不同周期选择不同线程的指令，以隐藏某一线程的停顿。课程前面的单 ALU 例题主要展示这种直觉。
+
+**Simultaneous Multithreading（SMT，同时多线程）**：Superscalar Core 可以在同一周期从多个线程中选择独立指令，使用不同的空闲执行单元。Intel Hyper-Threading 是 SMT 的经典例子之一。
+
+两者都尝试提高资源利用率，但并不复制一整套完整计算核心。对 SIMD 和 GPU 而言，硬件线程、Warp 和执行单元的关系还需结合具体架构理解，不能把 SMT 的行为直接套用到 CUDA。
+
+### 7.6 课程的最后一句性能思想
+
+高吞吐计算机需要：
+
+1. **足够多的独立工作**，覆盖多个 Core 与执行单元；
+2. **执行相似逻辑的数据组**，有效使用 SIMD；
+3. **比瞬时 ALU 处理能力更多的就绪工作**，在部分任务等待内存时继续计算。
+
+这三个条件都在强调：硬件峰值能力只有在任务结构允许时才会转化为有效性能。
+
+---
+
+## 8. 四种机制放在一起比较
+
+| 机制 | 并行工作来自哪里 | 它改变了什么 | 主要限制 |
+| --- | --- | --- | --- |
+| Superscalar / ILP | 同一指令流中彼此独立的指令 | 一个 Core 同时执行多个指令 | 指令依赖、执行端口和调度窗口 |
+| Multicore | 不同线程或任务的指令流 | 多个 Core 各自执行工作 | 独立任务数、同步、共享资源 |
+| SIMD | 数据元素执行相同操作 | 一条指令控制多个 Lane | Divergence、数据布局、访存模式 |
+| Hardware Multithreading | 同 Core 内其他就绪线程 | 保留更多执行上下文以隐藏 Stall | 上下文存储、Cache/带宽竞争 |
+
+它们可在一台机器中同时出现：
+
+~~~text
+CPU/GPU Chip
+ |
+ +-- Core 0
+ |     +-- Superscalar issue resources
+ |     +-- SIMD lanes / vector execution
+ |     +-- Thread context A
+ |     +-- Thread context B
+ |
+ +-- Core 1
+ |     +-- Superscalar / SIMD resources
+ |     +-- Other execution contexts
+ |
+ +-- ... memory hierarchy (private + shared levels)
+~~~
+
+**不要把所有维度机械相乘。** 两条 SMT 线程不代表 Core 的 ALU 翻倍；SIMD Lane 不等于独立 CPU Core；一项工作能否用满这些资源还取决于数据是否就绪、计算能否并行及资源是否互相争用。
+
+---
+
+## 9. 怎样做真正可信的 Performance Benchmark？
+
+正确性与性能是两件事。我们已经有三个独立实践：
+
+- Python Cache Simulator：验证 LRU 与局部性；
+- C++17 Multicore Taylor：验证线程分工与正确结果；
+- AVX2 向量乘法：验证 Vector Lanes 与 Scalar Tail。
+
+**Prediction → Measurement → Explanation** 应当成为固定工作流程。
+
+### 9.1 Prediction：先提出原因
+
+针对 C++ 多核程序可以预测：
+
+- 计算负载足够大、可用物理 Core 足够多时，多线程可能缩短总运行时间；
+- 输入太小、计算太轻时，线程创建与 join 成本可能盖过收益；
+- 线程数超过有意义的并发资源时，扩展性可能饱和；
+- 某些编译器本来就能自动向量化循环，多线程的增益不一定只来自多个 Core。
+
+### 9.2 Measurement：明确比较边界
+
+重复执行各个 Worker 数的程序，例如 1、2、4、8，每个组合测量多次并取中位数。
+
+| Workers | 正确性 | 中位数 ms | Speedup | 备注 |
+| --- | --- | --- | --- | --- |
+| 1 | pass/fail | 自行测量 | 1.00× | Baseline |
+| 2 | pass/fail | 自行测量 | T1/T2 | |
+| 4 | pass/fail | 自行测量 | T1/T4 | |
+| 8 | pass/fail | 自行测量 | T1/T8 | |
+
+必须保留 CPU 型号、核心数、输入 N、Taylor 迭代次数、编译选项、运行时其他负载等信息。示例 C++ 代码计时包括新建和 Join 线程；如研究常驻线程执行成本，需要将线程池初始化移出计时区间。
+
+### 9.3 Explanation：数据支持哪一种瓶颈？
+
+- 如果 1→2 Threads 没有提升：任务可能太小、线程开销大，或者 CPU 资源不足。
+- 如果 4→8 Threads 没有提升：可能是物理 Core 不足，也可能是共享资源已饱和。
+- 如果 AVX2 没有明显收益：可能是编译器已把普通循环自动向量化，或数据集太小，或实际瓶颈不在算术吞吐率。
+
+**千万不要用“代码中写了 8 Lane”直接推断加速 8 倍。** 即使正确性测试通过，也仍需单独设计有统计意义的性能实验。
+
+---
+
+## 10. 面向 AI Infrastructure 的连接（课外延伸）
+
+以下是将本讲性能模型用于当代 AI/ML 系统的独立扩展，**不应误认为 2023 年 Lecture 2 逐字教授了这些具体技术**。
+
+**GPU Tensor Kernel**：数值运算中有大量同构数据，适合 SIMD/SIMT；但如果数据访问不规则或控制流发散，实际有效吞吐可能远低于峰值。
+
+**GPU Warp Scheduling**：有足够多的 Ready Warps 时，可以在一部分 Warps 等待 HBM 数据期间执行其他 Warps，利用的是类似 Hardware Multithreading 的 Latency Hiding 思想。
+
+**LLM Prefill 与 Decode**：同一模型的两种阶段具有不同的 Tensor Shape、Batch 结构和数据访问模式，因此 Compute、Bandwidth、Latency 与调度的相对重要性可能不同。
+
+**CPU Preprocessing / Inference Serving**：Tokenizer、数据准备、请求预处理可能受多核并行和 Cache Locality 影响。增加软件线程可能提高吞吐，但也可能引入调度开销、共享缓存争用或内存带宽瓶颈。
+
+**KV Cache 和 GPU Shared Memory**：可借用“减少重复的数据移动”这一大方向来理解其优化目标，但 **CPU Cache Line/LRU、GPU Shared Memory 与 LLM KV Cache 的具体管理机制完全不同**，不能仅因都有 Cache 一词就把它们视作一种硬件结构。
+
+---
+
+## 11. 练习与参考答案
+
+可以先独立作答，再检查下面的推导。
+
+### Q1. Cache Line 起点
+
+若 Cache Line 是 16 字节，读取十进制地址 37，实际包含该地址的 Cache Line 起始地址是多少？覆盖范围是多少？
+
+**答：** floor(37/16)=2，因此起点为 32，覆盖 32–47。
+
+### Q2. Cache Hit / Miss
+
+两行 Cache、每行 4 字节，LRU 且初始为空。访问：
+
+~~~text
+0, 1, 4, 8, 0
+~~~
+
+Hit 和 Miss 各有几次？
+
+**答：** 地址 0 Miss；1 Hit；4 Miss；8 Miss 并逐出 0；最后 0 再次 Miss。**1 Hit、4 Miss。**
+
+### Q3. 三种 Cache Miss
+
+为什么第二个 Cache 示例最后一次读 0 称为 Capacity Miss，而不是 Cold Miss？如果缓存能保存四条 Line，结果会怎样？
+
+**答：** 最后一次读 0 不是首次使用这条 Line，所以不属于 Cold Miss。它之前被逐出是因为容量太小；若四条 Line 都能驻留，最后会 Hit。
+
+### Q4. 循环独立性
+
+以下循环是否能直接让不同线程同时计算各次迭代？
+
+~~~cpp
+for (int i = 1; i < n; ++i)
+    a[i] = a[i - 1] + b[i];
+~~~
+
+**答：** 不能直接按迭代独立方式处理，因为 a[i] 依赖 a[i-1]。需改写算法，例如使用适合的并行 Prefix Scan 方案。
+
+### Q5. SIMD 宽度
+
+一个 512-bit 向量指令处理 32-bit float，最多能同时容纳多少个 float 元素？
+
+**答：** 512/32=16。它不保证机器每周期都能发射这样的指令，也不保证实际速度提升 16 倍。
+
+### Q6. Divergence 计算
+
+在 8-wide SIMD 中，2 个 Lane 走有 5 个算术操作的 if 分支，6 个 Lane 走有 3 个操作的 else 分支。在分支串行执行的简化模型下，利用率多少？
+
+**答：**
+
+$$
+U=\frac{2\times5+6\times3}{8(5+3)}
+=\frac{28}{64}=43.75\%
+$$
+
+### Q7. 隐藏访存等待
+
+某 Core 每次做 C=4 个周期计算，然后需要等待 L=12 个周期。理想模型中至少需要多少个硬件线程才能持续保持计算资源忙碌？
+
+**答：**
+
+$$
+N_{\mathrm{threads}}\ge\left\lceil\frac{4+12}{4}\right\rceil=4
+$$
+
+另外三个线程各计算 4 周期，可以填满前一个线程 12 周期的等待窗口。
+
+### Q8. 多线程为什么不能让单次 Memory Load 更快？
+
+**答：** Memory Load 的实际延迟受存储层级、地址、内存控制器等限制。多线程主要让别的线程在等待时执行工作，不改变那次 Load 本身所需的物理时间。
+
+### Q9. 设计公平的性能实验
+
+比较串行与四线程 Taylor Approximation，必须控制哪些条件？
+
+**答：** 相同输入、Taylor 项数、正确性标准、编译器参数、硬件、测量边界；记录线程创建和 Join 是否包含在内，多轮测试并给出统计值。先确认结果正确，再讨论加速比。
+
+---
+
+## 12. 一页术语表
+
+| 英文 | 中文与说明 |
+| --- | --- |
+| Instruction Stream | 指令流：可由 Core 处理的机器操作序列 |
+| Execution Context | 执行上下文：PC、寄存器等运行状态 |
+| Superscalar | 超标量：一个 Core 对同一流中的独立指令并行执行 |
+| ILP | Instruction-Level Parallelism，指令级并行 |
+| Multicore | 多核：芯片上有多个 Core |
+| SIMD | 单指令多数据：一条指令控制多个数据 Lane |
+| SIMT | 单指令多线程：GPU 常见的程序执行组织方式 |
+| Lane | 向量运算中处理一个数据元素的逻辑位置 |
+| Intrinsic | 让编译器生成特定指令集操作的接口 |
+| Divergence | 同一组工作需要不同控制路径 |
+| Coherent Execution | 一组工作保持相似指令流 |
+| Cache Line | 缓存组织与搬运数据的基本单元之一 |
+| Spatial/Temporal Locality | 空间/时间局部性 |
+| Cold/Capacity/Conflict Miss | 首次访问/容量不足/映射冲突导致的未命中 |
+| LRU | 最近最少使用，示例中的逐出策略 |
+| Prefetching | 根据预测提前取回未来可能使用的数据 |
+| Hardware Multithreading | 硬件保留多个线程的执行状态并调度 |
+| SMT | 同时多线程：可以在同一周期使用多个线程的指令 |
+| Latency | 完成单项操作所需时间 |
+| Throughput | 单位时间完成多少工作 |
+| Stall | 因依赖、访存或资源不足而无法继续执行 |
+
+---
+
+## 13. 资料来源、可靠性与编写边界
+
+| 教学主题 | 对应官方 Slides（PDF 页码从 1 开始） | 资料核验 |
+| --- | --- | --- |
+| Processor、Instruction Stream、Superscalar | pp. 2–12 | Slides 文本 + 用户提供的自动 Transcript |
+| Memory、Cache Line、LRU、Locality | pp. 13–19 | Slides 文本 + Transcript 中的讲解与纠错 |
+| 正弦 Taylor 主案例与 Multicore | pp. 20–35 | Slides 文本 + Transcript |
+| SIMD、AVX2、Divergence | pp. 36–50 | Slides 文本 + Transcript |
+| 并行模式组合与芯片示例 | pp. 51–54 | Slides 文本 + Transcript |
+| Prefetch、内存等待 | pp. 55–62 | Slides 文本 + Transcript |
+| Hardware Multithreading、3/12 和 6/12 例题 | pp. 63–81 | Slides 文本；部分推导由教材补足 |
+| 补充硬件结构图与总结 | pp. 82–103 | Slides；未将每张附加图误当作视频口述 |
+| Python/C++ 练习、数值模型、AI Infra 延伸 | 本教材独立编写 | **非教授原话** |
+
+**关于 Transcript：** 你上传的是 YouTubeToTranscript 的 Lecture 2 英文自动识别稿，覆盖本讲开头到硬件多线程结束，但**没有时间戳，也未与原声逐句校对**。本文在术语不清楚时采用官方 Slides 与计算机体系结构中明确的定义。例如自动识别中的 “cash” 应理解为 Cache，“super scaler” 为 Superscalar；Capacity Miss 与 Conflict Miss 的口头修正也已保留。
+
+**代码核验范围：** Cache Python 实验得到 A=(6,2)、B=(12,5)；C++17 多核示例在 Linux/x86_64 使用 4 Worker 通过正确性检查；AVX2 示例的普通版本与 AVX2 版本也都编译、运行并通过结果验证。没有在你的机器上实测任何加速比。外部 Slides 与视频是核查资料，不是阅读本章的前置条件。
+
+**版权：** 本章为依据课程材料原创组织的教学解释、例题、代码和练习，并非 Slides 的逐页翻译；不在公开 GitHub 仓库上传完整第三方字幕或官方 PDF。
+
+---
+
+## 本章结论
+
+一个高吞吐处理器要把理论计算资源变成真实速度，通常需要同时满足：**足够多的独立工作（Multicore）、执行类似指令的数据组（SIMD）、等待内存时仍有可调度的工作（Hardware Multithreading）**。Cache、Locality 和 Prefetch 决定这些执行资源能否持续得到数据。
+
+如果你可以不看 Slides，自己推导 Cache Miss 数量、SIMD Lane 利用率、5 个硬件线程如何隐藏 12 周期等待，并运行三段独立程序得到正确性结果，就已经完成了 Lecture 2 最重要的学习目标。
