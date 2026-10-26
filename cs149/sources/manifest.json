@@ -3,7 +3,7 @@
   "official": "https://gfxcourses.stanford.edu/cs149/fall23",
   "playlist": "https://www.youtube.com/playlist?list=PLoROMvodv4rMp7MTFr4hQsDEcX7Bx6Odp",
   "source_review_date": "2026-10-25",
-  "notes": "18 个主题教学讲次 + 1 个期中复习视频。仓库尚未保存或完整核对原始字幕。Slides 链接已逐一从官方页面确认。Glasp 只提供截断转写展示，不能充当完整 Transcript。",
+  "notes": "18 个主题讲次及 Midterm Review；Slides 已确认。Lecture 1 已收到并通读用户提供的无时间戳自动字幕，但未逐句与原声核对，版权原因未将原始字幕提交到仓库；其他讲次的完整 Transcript 仍需核验。",
   "lectures": [
     {
       "lecture": 1,
@@ -15,7 +15,10 @@
       "video_playlist_position": 1,
       "transcript_local": null,
       "transcript_verified": false,
-      "textbook_status": "draft_from_slides_with_video_reference"
+      "textbook_status": "expanded_from_official_slides_and_user_supplied_asr_not_audio_verified",
+      "transcript_available": true,
+      "transcript_text_reviewed": true,
+      "transcript_type": "User-provided YouTubeToTranscript automatic ASR, timestamp OFF"
     },
     {
       "lecture": 2,

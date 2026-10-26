@@ -2,11 +2,11 @@
 
 这是原创中文教程，目标是 **脱离视频仍可系统学习**，同时保留回查 Stanford 官方课件和公开视频的能力。
 
-**编写状态（2026-10-25）**：先发布 L01、L07、L10 的第一版正文。其余课次列入索引，等取得并核对完整字幕后逐章扩写。已写章节是基于对应 Fall 2023 Slides、公开视频及可核对的公开视频概要/片段撰写，**并未完成完整逐字稿的逐段校对**。
+**编写状态（2026-10-25）**：L01 已依据用户提供的无时间戳自动 Transcript 与官方 82 页 Slides 扩写成可独立阅读的教材，**已阅读文字稿，但仍未与原音逐句核对**。L07、L10 仍为 Slides 参考初稿；其余讲次尚未编写正文。
 
 ## 已写的章节
 
-- [第 1 章：为什么需要并行计算？为什么还必须追求效率？](./01-why-parallelism.md)
+- [第 1 章：为什么需要并行计算？（Transcript + Slides 详细版）](./01-why-parallelism.md)
 - [第 7 章：从 CUDA 线程抽象到真实 GPU 执行](./07-gpu-cuda.md)
 - [第 10 章：DNN 的 GPU 优化、Fusion 与 Attention](./10-dnn-gpu.md)
 
@@ -14,7 +14,7 @@
 
 | 主题讲次 | 课程内容 | 原始资料 | 教材 |
 | --- | --- | --- | --- |
-| 01 | Why Parallelism? Why Efficiency? | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/whyparallelism/01_whyparallelism_huXfOJ4.pdf) · [视频](https://www.youtube.com/watch?v=V1tINV2-9p4) | [初稿](./01-why-parallelism.md) |
+| 01 | Why Parallelism? Why Efficiency? | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/whyparallelism/01_whyparallelism_huXfOJ4.pdf) · [视频](https://www.youtube.com/watch?v=V1tINV2-9p4) | [详细版](./01-why-parallelism.md) |
 | 02 | A Modern Multi-Core Processor | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/multicore/02_basicarch_xX3ssOi.pdf) · [视频](https://www.youtube.com/watch?v=CKmNpAO5rS4) | 待编写 |
 | 03 | Multi-core Arch Part II + ISPC | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/multicore2-ispc/03_multicore2-ispc.pdf) · [视频](https://www.youtube.com/watch?v=F4bVSyz_jxo) | 待编写 |
 | 04 | Parallel Programming Basics | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/progbasics/04_progbasics.pdf) · [视频](https://www.youtube.com/watch?v=0-ztm8SKq70) | 待编写 |

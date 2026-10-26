@@ -9,7 +9,7 @@
 
 ## 中文教材（Transcript + Slides 路线）
 
-新增 [中文教材目录](./textbook/README.md)：以 2023 官方 Slides 和可核对的录播资料为参考，原创编写连续正文。目前已发布 L01、L07、L10 初稿；[完整 Slides / 视频来源索引](./sources/README.md) 覆盖 18 个主题讲次及期中复习课。完整 Transcript 尚在核验，未获取的章节不标记完成。
+新增 [中文教材目录](./textbook/README.md)：以 2023 官方 Slides 和可核对的录播资料为参考，原创编写连续正文。其中 L01 已结合用户提供 Transcript 和官方 Slides 扩写为详细版，L07、L10 仍为初稿；[完整 Slides / 视频来源索引](./sources/README.md) 覆盖 18 个主题讲次及期中复习课。L01 文字稿已阅读但尚未与录音逐句校对；其余完整 Transcript 尚在核验，未获取的章节不标记完成。
 
 ## 从这里开始
 
