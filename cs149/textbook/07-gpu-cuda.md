@@ -4,6 +4,8 @@
 
 **原始资料：** [2023 官方 Slides PDF（73 页）](https://gfxcourses.stanford.edu/cs149/fall23content/media/gpucuda/07_gpuarch.pdf) · [Stanford Online Lecture 7](https://www.youtube.com/watch?v=qQTDF0CBoxE) · [Glasp 文字预览](https://glasp.co/youtube/qQTDF0CBoxE)
 
+**先修知识：** 了解 C/C++ 数组、for 循环和函数即可；本章从头定义 CUDA 的执行单位与内存层级，不要求先看其他讲次。**若没有 NVIDIA GPU，先做第 5 节的手算实验，也能理解 Shared Memory 的协作原理。**
+
 ## 学习目标
 
 本章结束时，应能够画出 Host、Device、Grid、Block、Thread、Warp、SM 的关系；实现一个正确的 CUDA Kernel；解释并行粒度与 GPU 资源约束的关系；区分 Kernel-only 与端到端性能；以及对 GPU 内存访问建立初步成本模型。
@@ -143,18 +145,113 @@ lane 2 -> A[2048]
 
 一个常见优化是让同一个 Block 的线程先合作把输入 Tile 装入 Shared Memory，再在片上复用它。需要将两端的 Halo 元素也装入，确保所有消费者开始读取前输入已经就绪。
 
-示意代码（**不是完整卷积实现**）：
+### 一份可以复算的 3-point Stencil
+
+定义长度为 N 的输入 x 与输出 y。为了固定边界行为，我们规定越界元素的值为 0：
+
+$
+y_i = \frac{x_{i-1} + x_i + x_{i+1}}{3},\quad x_j=0\ \text{when } j<0\ \text{or } j\ge N
+$
+
+例如 x = [1, 2, 3, 4, 5] 时，答案应是 y = [1, 2, 3, 4, 3]。以 2 个线程一组的 Block 分工：
+
+~~~text
+Block 0: 线程处理 x[0], x[1]；还要装入右邻 x[2] 和左边界 0。
+Block 1: 线程处理 x[2], x[3]；还要装入左邻 x[1] 和右邻 x[4]。
+Block 2: 线程处理 x[4]，另一个逻辑线程没有有效输出；
+         仍需要把其 shared-memory 槽位设为 0，右边界也是 0。
+~~~
+
+为什么需要 Shared Memory？相邻输出会重复访问输入，例如 x[1] 同时参与 y[0]、y[1]、y[2] 的计算。让每个 Block 一次性协同装入自身的输入段以及左右 Halo，可以在片上复用数据。下方程序使用 **Block 内 Barrier** 确保全体线程完成数据加载后再读取。这里的设计是一个教学示例；不能保证对所有尺寸都比直接从 Global Memory 读取更快。
+
+### 完整可编译的 CUDA 程序
+
+将下面内容另存为 avg3.cu。要求一块支持 CUDA 的 NVIDIA GPU、驱动和 nvcc 工具链；如果没有 GPU，可以先用上面的数组和公式在纸上验证输出。
 
 ~~~cpp
-extern __shared__ float tile[];
+#include <cuda_runtime.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <vector>
 
-// 各线程协同搬入 input tile + halo（具体索引略）
-tile[threadIdx.x] = input[...];
-__syncthreads();
+#define CUDA_CHECK(call) do {                                      \
+  cudaError_t err = (call);                                        \
+  if (err != cudaSuccess) {                                        \
+    std::fprintf(stderr, "CUDA: %s\n", cudaGetErrorString(err));  \
+    std::exit(EXIT_FAILURE);                                       \
+  }                                                               \
+} while (0)
 
-// 此后使用 tile 的局部邻域计算输出
-output[...] = ...;
+// 边界外的 x 元素按零处理，输出为三点平均。
+__global__ void avg3(const float* x, float* y, int n) {
+  extern __shared__ float tile[];
+  int t = threadIdx.x;
+  int i = blockIdx.x * blockDim.x + t;
+
+  tile[t + 1] = (i < n) ? x[i] : 0.0f;
+  if (t == 0)
+    tile[0] = (i > 0) ? x[i - 1] : 0.0f;
+  if (t == blockDim.x - 1)
+    tile[blockDim.x + 1] = (i + 1 < n) ? x[i + 1] : 0.0f;
+
+  __syncthreads(); // 所有线程完成加载后，才能读取邻居的槽位。
+  if (i < n)
+    y[i] = (tile[t] + tile[t + 1] + tile[t + 2]) / 3.0f;
+}
+
+int main() {
+  const std::vector<float> x{1, 2, 3, 4, 5};
+  const int n = static_cast<int>(x.size());
+  const int threads = 2; // 刻意使用两个线程，便于手工复算。
+  const int blocks = (n + threads - 1) / threads;
+  const size_t bytes = n * sizeof(float);
+  float *dx = nullptr, *dy = nullptr;
+  std::vector<float> y(n);
+
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&dx), bytes));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&dy), bytes));
+  CUDA_CHECK(cudaMemcpy(dx, x.data(), bytes, cudaMemcpyHostToDevice));
+
+  // 每个 Block：threads 个中心元素 + 左右各 1 个 Halo。
+  avg3<<<blocks, threads, (threads + 2) * sizeof(float)>>>(dx, dy, n);
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaMemcpy(y.data(), dy, bytes, cudaMemcpyDeviceToHost));
+
+  bool correct = true;
+  for (int i = 0; i < n; ++i) {
+    float left = (i > 0) ? x[i - 1] : 0.0f;
+    float right = (i + 1 < n) ? x[i + 1] : 0.0f;
+    float reference = (left + x[i] + right) / 3.0f;
+    correct &= std::fabs(reference - y[i]) < 1e-5f;
+    std::printf("%.4f%s", y[i], i + 1 == n ? "\n" : " ");
+  }
+
+  CUDA_CHECK(cudaFree(dx));
+  CUDA_CHECK(cudaFree(dy));
+  std::printf("correct=%s\n", correct ? "yes" : "NO");
+  return correct ? EXIT_SUCCESS : EXIT_FAILURE;
+}
 ~~~
+
+在安装好 CUDA Toolkit 的终端运行：
+
+~~~bash
+nvcc -O2 -std=c++17 avg3.cu -o avg3
+./avg3
+~~~
+
+数学上预期的输出（不是声称已经在真实 GPU 上实测）：
+
+~~~text
+1.0000 2.0000 3.0000 4.0000 3.0000
+correct=yes
+~~~
+
+这里故意让 N=5、Threads Per Block=2：最后一个 Block 包含一个越界线程，能检测 Shared Memory 中“无效中心元素必须清零”这一常见边界问题。
+
+**注意：** 代码为原理演示，当前尚未在 NVIDIA GPU 上完成端到端实机测试。正式 Benchmark 需要更多输入、Warm-up 和重复测量；不能依据这段小程序判断哪种 Stencil 最快。
 
 这里 __syncthreads() 是**一个 Block 内**的 Barrier。不同 Blocks 之间不能假定天然同步，也不能按 Block 编号假定它们在同一 Launch 中依次完成。
 
@@ -222,6 +319,24 @@ Kernel 自身加速：2.0x
 
 **4. GPU FLOPs 翻倍但 SAXPY 没快，可能为什么？**  
 答：SAXPY 可能已受内存带宽约束；此外还需排查数据规模、缓存、Launch、频率和传输成本。
+
+## 术语小词典：不需要翻查前一讲
+
+| 术语 | 本章中的含义 |
+| --- | --- |
+| Kernel | 在 GPU 上执行的函数，一次 Launch 创建一个 Grid |
+| Thread | 程序员看到的最小逻辑执行实例 |
+| Block | 一组可共享 Shared Memory、进行 Block 内同步的 Threads |
+| Grid | 一次 Kernel Launch 中所有 Blocks 的集合 |
+| Warp | NVIDIA GPU 执行与调度中的线程分组，通常包含 32 Threads |
+| SM | Streaming Multiprocessor，调度并执行若干 Warps 的硬件单元 |
+| SIMT | Single Instruction, Multiple Threads，按线程编程并以 Warp 执行的基本模型 |
+| Occupancy | SM 活动 Warps 相对于硬件可支持最大数量的比例 |
+| Coalescing | 将相邻线程的内存访问组织成高效 Memory Transactions |
+| Halo | 分块计算时，为块边界上的输出而额外加载的邻近输入元素 |
+| H2D / D2H | Host-to-Device 与 Device-to-Host 内存传输 |
+
+**完整性自测：** 不打开 Slides，能否解释为什么我们的 avg3 程序需要两个 Halo、为什么调用 Barrier、为什么最后一个 Block 的越界线程不能随意读取内存，以及为何 Shared Memory 不保证提速？如果能说明这些原因，就已经掌握了这一部分最重要的概念。
 
 ## 来源核验
 
