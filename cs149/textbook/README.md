@@ -4,7 +4,7 @@
 
 **教材的正式验收标准是 [Self-contained 中文教材规范](./SELF-CONTAINED-STANDARD.md)：一章读到底，应当能独立理解概念、完成计算、复现最小例子、验证答案。** Slides、Transcript、视频是出处核验与延伸资源，不是必读前置条件。
 
-**编写状态（2026-10-25）**：L01 已依据用户提供的无时间戳自动 Transcript 与官方 82 页 Slides 扩写成可独立阅读的教材，**已阅读文字稿，但仍未与原音逐句核对**。L07、L10 仍为 Slides 参考初稿；其余讲次尚未编写正文。
+**编写状态（2026-10-25）**：L01 已依据用户提供的无时间戳自动 Transcript 与官方 82 页 Slides 扩写成可独立阅读的教材，**已阅读文字稿，但仍未与原音逐句核对**。L07、L10 已补充独立算例和代码，达到 self-contained 初稿的阅读目标，但仍为 Slides 参考版本，完整 Transcript 尚未核对；其余讲次尚未编写正文。
 
 ## 已写的章节
 
@@ -22,10 +22,10 @@
 | 04 | Parallel Programming Basics | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/progbasics/04_progbasics.pdf) · [视频](https://www.youtube.com/watch?v=0-ztm8SKq70) | 待编写 |
 | 05 | Performance Optimization I: Work Distribution and Scheduling | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/perfopt1/05_progperf1.pdf) · [视频](https://www.youtube.com/watch?v=mmO2Ri_dJkk) | 待编写 |
 | 06 | Performance Optimization II: Locality, Communication, and Contention | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/perfopt2/06_progperf2.pdf) · [视频](https://www.youtube.com/watch?v=Mhdny2JNhmc) | 待编写 |
-| 07 | GPU Architecture and CUDA Programming | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/gpucuda/07_gpuarch.pdf) · [视频](https://www.youtube.com/watch?v=qQTDF0CBoxE) | [初稿](./07-gpu-cuda.md) |
+| 07 | GPU Architecture and CUDA Programming | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/gpucuda/07_gpuarch.pdf) · [视频](https://www.youtube.com/watch?v=qQTDF0CBoxE) | [自包含初稿](./07-gpu-cuda.md) |
 | 08 | Data-Parallel Thinking | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/dataparallel/08_dataparallel.pdf) · [视频](https://www.youtube.com/watch?v=Ba3TqxSgnTk) | 待编写 |
 | 09 | Distributed Data-Parallel Computing Using Spark | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/spark/09_spark.pdf) · [视频](https://www.youtube.com/watch?v=jaMWmLq422U) | 待编写 |
-| 10 | Efficiently Evaluating DNNs on GPUs | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/dnneval/10_dnneval.pdf) · [视频](https://www.youtube.com/watch?v=qbKtU0X6-WU) | [初稿](./10-dnn-gpu.md) |
+| 10 | Efficiently Evaluating DNNs on GPUs | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/dnneval/10_dnneval.pdf) · [视频](https://www.youtube.com/watch?v=qbKtU0X6-WU) | [自包含初稿](./10-dnn-gpu.md) |
 | 11 | Cache Coherence | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/cachecoherence/11_coherence.pdf) · [视频](https://www.youtube.com/watch?v=lrCfG2CPDEw) | 待编写 |
 | 12 | Memory Consistency | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/locksconsistency/12_consistency.pdf) · [视频](https://www.youtube.com/watch?v=nFXWmo9MFiY) | 待编写 |
 | 13 | Fine-Grained Synchronization and Lock-Free Programming | [Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/finegrained/13_lockfree.pdf) · [视频](https://www.youtube.com/watch?v=GA1ObImqaMo) | 待编写 |
@@ -56,4 +56,4 @@
 
 原有 [notes/](../notes/) 是速查与练习笔记；本目录的章节是连续叙述、适合独立阅读的教材。遇到教材与速记不一致时，优先检查 [Stanford 2023 官方材料](https://gfxcourses.stanford.edu/cs149/fall23/)。
 
-[来源状态清单](../sources/README.md) · [制作流程](../tools/README.md) · [章节模板](./CHAPTER-TEMPLATE.md)
+[来源状态清单](../sources/README.md) · [制作流程](../tools/README.md) · [章节模板](./CHAPTER-TEMPLATE.md) · [Markdown 自动检查](../tools/check_textbook.py)
