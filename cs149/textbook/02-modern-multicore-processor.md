@@ -8,6 +8,8 @@
 **学习时间：** 2–3 小时阅读与练习，约 1–2 小时完成编程。  
 **来源：** [Stanford Lecture 2 页面](https://gfxcourses.stanford.edu/cs149/fall23/lecture/multicore/) · [103 页官方 Slides](https://gfxcourses.stanford.edu/cs149/fall23content/media/multicore/02_basicarch_xX3ssOi.pdf) · [课程视频](https://www.youtube.com/watch?v=CKmNpAO5rS4)
 
+**配套实验：** [三个可运行程序与运行说明](../labs/lecture02/README.md)。全部核心代码也完整放在本章正文中；该链接只是方便直接执行，不是必读前提。
+
 ## 0. 本章的问题与学习目标
 
 假设你要对一百万个浮点数执行相同的复杂计算。一台机器拥有多个 CPU Core，每个 Core 还有向量执行单元；为什么一个普通 for 循环未必能使用这些资源？为什么算术单元已经足够多，程序仍可能被内存访问拖慢？
@@ -729,7 +731,35 @@ $$
 
 两者都尝试提高资源利用率，但并不复制一整套完整计算核心。对 SIMD 和 GPU 而言，硬件线程、Warp 和执行单元的关系还需结合具体架构理解，不能把 SMT 的行为直接套用到 CUDA。
 
-### 7.6 课程的最后一句性能思想
+### 7.6 GPU 的 Warp Context：更多驻留工作不等于更多 ALU
+
+官方 Slides 还给出两个非常有启发性的硬件例子。
+
+**例子 A：16 Core 的虚构芯片**
+
+假设 16 个 Cores，每 Core 有 8 个 SIMD Lanes，并能驻留 4 个硬件线程上下文：
+
+- 每 Core 的同时计算 Lane 数量为 8；
+- 16 个 Core 合计 16×8=**128 个计算 Lane**；
+- 16×4=**64 个可驻留的硬件线程指令流**；
+- 如果每个指令流处理 8 个并行数据元素，总共可维护 **64×8=512 个逻辑待处理工作位置**。
+
+这绝不表示每周期有 512 个独立 ALU 可以工作：计算单元仍是 128 Lane。其余上下文使处理器在数据尚未就绪时仍有其他工作可以调度。
+
+**例子 B：NVIDIA V100（2017 年发布、用于 2023 课程示例）**
+
+课程以 V100 为例，假设最多有 80 个 SM，每个 SM 可驻留最多 64 个 Warps，一个 Warp 有 32 个 CUDA Threads。
+
+$
+80\ \mathrm{SM}\times64\ \mathrm{warps/SM}\times32\ \mathrm{threads/warp}
+=163{,}840\ \mathrm{resident\ thread\ positions}
+$
+
+这里数的是**理论上可驻留的线程位置上限**，不是一个周期同时完成 163,840 次浮点运算。真实驻留数量还受寄存器、Shared Memory、Block 大小和其他资源限制；Warp 发射和 ALU 数量也与驻留线程数不同。
+
+这正是理解 CUDA **Occupancy**、**Latency Hiding** 与 **GPU Peak Throughput** 必须先区分的三个层次。以上是官方课件里的历史硬件示例，不应当作 2026 年 GPU 型号规格表。
+
+### 7.7 课程的最后一句性能思想
 
 高吞吐计算机需要：
 
