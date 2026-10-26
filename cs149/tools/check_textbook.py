@@ -23,8 +23,7 @@ def lint_chapter(path: Path) -> list[str]:
     rows = body.splitlines()
     problems: list[str] = []
     in_code: tuple[str, int] | None = None
-    in_math = False
-    math_marker = "$" * 2
+    math_fences = 0
 
     for num, row in enumerate(rows, 1):
         stripped = row.strip()
@@ -33,6 +32,8 @@ def lint_chapter(path: Path) -> list[str]:
             symbols = fence.group(1)
             if in_code is None:
                 in_code = (symbols[0], len(symbols))
+                if stripped.startswith("```math"):
+                    math_fences += 1
             elif in_code[0] == symbols[0] and len(symbols) >= in_code[1]:
                 in_code = None
             continue
@@ -42,20 +43,16 @@ def lint_chapter(path: Path) -> list[str]:
         if stripped == "$":
             problems.append(f"line {num}: standalone single $ breaks display math")
         if stripped in (r"\[", r"\]"):
-            problems.append(f"line {num}: use $$ delimiters for GitHub display math")
-        if stripped == math_marker:
-            in_math = not in_math
-        elif in_math and re.match(r"^[+-]\s", stripped):
-            problems.append(
-                f"line {num}: leading + or - may turn a math line into a Markdown list"
-            )
+            problems.append(f"line {num}: use fenced math blocks for GitHub display math")
+        if stripped == "$$":
+            problems.append(f"line {num}: replace standalone $$ with a fenced math block")
         if "input[...]" in stripped or "output[...]" in stripped:
             problems.append(f"line {num}: unfinished array-index placeholder")
 
     if in_code:
         problems.append("unclosed code fence")
-    if in_math:
-        problems.append("unclosed display-math block")
+    if not math_fences:
+        problems.append("no fenced math blocks found in this chapter")
 
     if "**先修知识：**" not in body:
         problems.append("missing explicit prerequisites")
